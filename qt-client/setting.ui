@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Setting</class>
+ <widget class="QWidget" name="Setting">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>380</width>
+    <height>215</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <widget class="QLineEdit" name="lineEdit">
+   <property name="geometry">
+    <rect>
+     <x>82</x>
+     <y>80</y>
+     <width>91</width>
+     <height>31</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QLineEdit" name="lineEdit_2">
+   <property name="geometry">
+    <rect>
+     <x>262</x>
+     <y>80</y>
+     <width>91</width>
+     <height>31</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton">
+   <property name="geometry">
+    <rect>
+     <x>270</x>
+     <y>160</y>
+     <width>61</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>楷体</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>重置</string>
+   </property>
+  </widget>
+  <widget class="QComboBox" name="comboBox">
+   <property name="geometry">
+    <rect>
+     <x>110</x>
+     <y>11</y>
+     <width>181</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <item>
+    <property name="text">
+     <string/>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35KV及以上螺栓镀锌层
+(直径&gt;=20mm) 1</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35-500KV金具镀锌层
+(厚度&gt;=6mm) 2</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10kV塔材钢镀锌层
+(厚度&gt;=5mm) 3</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10KV及以下螺栓镀锌层
+(直径&gt;=20mm) 4</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10KV及以下金具镀锌层
+(厚度&gt;=6mm) 5</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35kV及以上塔材钢镀锌层
+(厚度&lt;5mm) 6</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35KV及以上螺栓镀锌层
+(直径&lt;20mm) 7</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35-500KV金具镀锌层
+(厚度&gt;=3且&lt;6mm) 8</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35kV及以上塔材钢镀锌层
+(厚度&gt;=5mm) 9</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10KV及以下螺栓镀锌层
+(直径&lt;20mm) 10</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10KV及以下金具镀锌层
+(厚度&gt;=3且&lt;6mm) 11</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35kV及以上塔材铁镀锌层
+(厚度&gt;=5mm) 12</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>35kV及以上塔材铁镀锌层
+(厚度&gt;=2且&lt;5mm) 13</string>
+    </property>
+   </item>
+   <item>
+    <property name="text">
+     <string>10KV及以下塔材铁镀锌层 
+（厚度&gt;=5mm) 14</string>
+    </property>
+   </item>
+  </widget>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>10</x>
+     <y>80</y>
+     <width>61</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>楷体</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>平均值</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_2">
+   <property name="geometry">
+    <rect>
+     <x>190</x>
+     <y>80</y>
+     <width>61</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>楷体</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>最小值</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_3">
+   <property name="geometry">
+    <rect>
+     <x>60</x>
+     <y>10</y>
+     <width>40</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>楷体</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>表格</string>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton_2">
+   <property name="geometry">
+    <rect>
+     <x>60</x>
+     <y>160</y>
+     <width>61</width>
+     <height>31</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>楷体</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>保存</string>
+   </property>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
