@@ -1,0 +1,99 @@
+# ==========================================
+# 通用：系统文件
+# ==========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# 通用：编辑器/IDE 缓存
+# ==========================================
+.idea/
+.vscode/*
+!.vscode/c_cpp_properties.json
+!.vscode/launch.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# ==========================================
+# 通用：CMake 编译产物
+# ==========================================
+build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+*.ninja
+.ninja_log
+.ninja_deps
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+
+# ==========================================
+# Qt 项目 (qt-client/)
+# ==========================================
+# Qt Creator 缓存
+*.autosave
+*.pro.user
+*.pro.user.*
+*.qtc.user
+*.qtc.user.*
+.qtc_clangd/
+
+# Qt MOC/UIC/RCC 生成文件
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.moc
+
+# Qt 可执行文件与库
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# ==========================================
+# STM32 项目 (stm32/)
+# ==========================================
+# STM32 编译产物
+*.elf
+*.hex
+*.bin
+*.map
+*.o
+*.d
+*.a
+*.su
+
+# STM32CubeMX 生成的临时文件
+*.ioc.bak
+*.ioc~
+MX_Project.bak/
+
+# STM32 调试文件
+*.jlink
+*.stlink
+*.launch
+.gdbinit
+
+# Keil/IAR 项目文件（如果是 CubeMX 生成的）
+*.uvprojx
+*.uvoptx
+*.uvguix.*
+*.ewp
+*.eww
+*.ewt
+*.dep
+
+# ==========================================
+# 通用：日志与备份
+# ==========================================
+*.log
+*.bak
+*.old
