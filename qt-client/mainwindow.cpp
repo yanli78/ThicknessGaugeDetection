@@ -85,7 +85,7 @@ MainWindow::MainWindow(QWidget *parent)
         statusLabel->setText("状态：监听中 (端口8080)");
     }
     // serial->setPortName("COM5");
-    serial->setBaudRate(QSerialPort::Baud115200);       // 设置波特率
+    serial->setBaudRate(QSerialPort::Baud9600);       // 设置波特率
     serial->setDataBits(QSerialPort::Data8);            // 设置数据位
     serial->setParity(QSerialPort::NoParity);           // 设置校验位
     serial->setStopBits(QSerialPort::OneStop);          // 设置停止位
@@ -137,7 +137,7 @@ void MainWindow::paintEvent(QPaintEvent *event)
     {
         // 图片加载失败时，绘制默认背景（可选）
         // painter.fillRect(this->rect(), Qt::white);
-        qWarning() << "背景图片加载失败，请检查路径！";
+        //qWarning() << "背景图片加载失败，请检查路径！";
     }
 }
 
@@ -259,31 +259,8 @@ void MainWindow::dataReceive()
         ui->tableWidget->setHorizontalHeaderLabels({"测量结果"});
     }
 
-    // ========== 凑够4字节解析float（原有逻辑优化） ==========
-    const int FLOAT_BYTE_LEN = 4; // float固定4字节
-    while (m_dataCache.size() >= FLOAT_BYTE_LEN)
-    {
-        QByteArray data4 = m_dataCache.left(FLOAT_BYTE_LEN); // 取前4字节
-        m_dataCache.remove(0, FLOAT_BYTE_LEN);               // 删除已解析的字节
-
-        // 解析小端序float（原有逻辑保留）
-        float result = qFromLittleEndian<float>((const uchar *)data4.data());
-
-        // 有效数据阈值（可根据实际需求调整）
-        const float MIN_VALID = 1.0f;
-        const float MAX_VALID = 2000.0f;
-
-        // ========== 优化：无效数据过滤逻辑 ==========
-        if (result <= 0.0f || result < MIN_VALID || result > MAX_VALID)
-        {
-            ui->textBrowser->append("无效数据：" + QString::number(result, 'f', 2) + "\n");
-            continue; // 跳过无效数据，继续解析下一批
-        }
-
-        // ========== 有效数据处理：原有逻辑 + 新增统计同步 ==========
-        ui->textBrowser->append("转换浮点数: " + QString::number(result, 'f', 2));
-        ui->textBrowser->append("\n");
-        ui->lineEdit_result->setText(QString::number(result, 'f', 2));
+    bluetoothprotocolparser.onDataReceived(m_dataCache);
+    double result = bluetoothprotocolparser.thick;
 
         // ========== 表格插入数据（原有逻辑保留） ==========
         int row = ui->tableWidget->rowCount();
@@ -303,7 +280,6 @@ void MainWindow::dataReceive()
         measureValues.append(static_cast<double>(result)); // 转double存入统计列表
 
         updateStatistics(); // 立即更新最大值/最小值/平均值
-    }
 }
 
 void MainWindow::on_pushButton_5_clicked()
@@ -1652,3 +1628,125 @@ void MainWindow::setFontColor(QAxObject *range, int color)
         qDebug() << "设置字体颜色异常";
     }
 }
+
+void BluetoothProtocolParser::onDataReceived(const QByteArray &newData) {
+    m_buffer.append(newData);
+
+    // 最小包长：Flag(1) + CMD(1) + Size(2) + CRC(1) = 5字节
+    while (m_buffer.size() >= 5) {
+        // 1. 寻找包头标志 0xBB [cite: 4, 42]
+        if (static_cast<uint8_t>(m_buffer.at(0)) != 0xBB) {
+            m_buffer.remove(0, 1);
+            continue;
+        }
+
+        // 2. 读取 Size 字段 (小端模式)
+        uint16_t size = static_cast<uint8_t>(m_buffer.at(2)) |
+                        (static_cast<uint8_t>(m_buffer.at(3)) << 8);
+
+        // 根据公式：包总长 = Flag(1) + Size + CRC(1) [cite: 3, 4]
+        int expectedPacketLength = 1 + size + 1;
+
+        // 检查缓存中是否有完整的一个包（处理半包等待）
+        if (m_buffer.size() < expectedPacketLength) {
+            break; // 跳出循环，等待下一次 onDataReceived 数据拼接
+        }
+
+        // 3. 提取用于 CRC 校验的数据段 (CMD + SIZE + DATA) [cite: 18]
+        QByteArray crcData = m_buffer.mid(1, size);
+        uint8_t calculatedCrc = crc8(reinterpret_cast<const uint8_t*>(crcData.constData()), size);
+        uint8_t receivedCrc = static_cast<uint8_t>(m_buffer.at(expectedPacketLength - 1));
+
+        // 4. 校验 CRC [cite: 18]
+        if (calculatedCrc != receivedCrc) {
+            qDebug() << "CRC 校验错误，丢弃包头尝试重新同步！";
+            m_buffer.remove(0, 1); // 丢弃0xBB，继续寻找下一个有效包头
+            continue;
+        }
+
+        // 5. CRC 通过，开始解析数据
+        uint8_t cmd = static_cast<uint8_t>(m_buffer.at(1));
+        QByteArray payloadData = m_buffer.mid(4, size - 3); // 提取纯 Data(n字节) 载荷
+
+        if (cmd == 0x02) {
+            parseRealTimeData(payloadData);
+        } else if (cmd == 0x03) {
+            // parseDataGroup(payloadData); // 预留数据组 0x03 的解析接口
+            qDebug() << "接收到数据组 0x03 (524字节)";
+        }
+
+        // 6. 将已处理的整包数据从缓存中移除
+        m_buffer.remove(0, expectedPacketLength);
+    }
+}
+
+
+uint8_t BluetoothProtocolParser::crc8(const uint8_t *data, uint16_t length) {
+    uint8_t crc = 0;
+    for (uint16_t len = 0; len < length; ++len) {
+        crc ^= data[len];
+        for (int i = 0; i < 8; i++) {
+            if (crc & 0x80)
+                crc = (crc << 1) ^ 0x07;
+            else
+                crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+// 解析 0x02 实时测量数据
+void BluetoothProtocolParser::parseRealTimeData(const QByteArray &data) {
+    // 至少需要 5 字节 (4字节数据 + 1字节材料) [cite: 8]
+    if (data.size() < 5) return;
+
+    // 1. 读取 4 字节测量数据 (小端模式拼接) [cite: 12]
+    uint32_t rawData = static_cast<uint8_t>(data.at(0)) |
+                       (static_cast<uint8_t>(data.at(1)) << 8) |
+                       (static_cast<uint8_t>(data.at(2)) << 16) |
+                       (static_cast<uint8_t>(data.at(3)) << 24);
+
+    // 2. 处理原码符号位逻辑 (最高位为1表示负数)
+    bool isNegative = (rawData & 0x80000000) != 0;
+    uint32_t magnitude = rawData & 0x7FFFFFFF; // 提取除最高位外的数值
+
+    // 3. 计算实际值 (除以 1000)
+    double actualValue = magnitude / 1000.0;
+    if (isNegative) {
+        actualValue = -actualValue;
+    }
+
+    // 4. 解析材料类型
+    uint8_t materialCode = static_cast<uint8_t>(data.at(4));
+    QString materialStr;
+    if (materialCode == 0x00) materialStr = "NFE";
+    else if (materialCode == 0x01) materialStr = "FE";
+    else if (materialCode == 0x02) materialStr = "空 (Empty)";
+    else materialStr = "未知";
+
+    // 5. 解析组名 (如果存在的话) [cite: 8]
+    QString groupName = "无";
+    if (data.size() >= 21) {
+        // 将 16 字节的组名转为字符串，去掉多余的空字符
+        groupName = QString::fromLocal8Bit(data.mid(5, 16)).trimmed();
+    }
+
+    // 打印或通过信号发给 UI
+    qDebug() << QString("解析成功 -> 测量值: %1 µm, 材料: %2, 组名: %3")
+                    .arg(actualValue, 0, 'f', 2)
+                    .arg(materialStr)
+                    .arg(groupName);
+    thick = actualValue;
+}
+
+
+
+
+
+
+
+
+
+
+
+

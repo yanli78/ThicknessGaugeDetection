@@ -38,6 +38,30 @@ namespace Ui
 }
 QT_END_NAMESPACE
 
+
+
+class BluetoothProtocolParser : public QObject {
+    Q_OBJECT
+
+public:
+    BluetoothProtocolParser(QObject *parent = nullptr) : QObject(parent) {}
+
+    // 接收串口或蓝牙发来的原始数据
+    void onDataReceived(const QByteArray &newData);
+    double thick = 0;
+
+private:
+    QByteArray m_buffer; // 用于解决粘包和半包的底层缓存
+
+    // 根据文档提供的 C 语言算法翻译的 CRC8 计算函数 [cite: 19-37]
+    uint8_t crc8(const uint8_t *data, uint16_t length);
+
+    // 解析 0x02 实时测量数据
+    void parseRealTimeData(const QByteArray &data);
+};
+
+
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -114,6 +138,11 @@ private:
     int take_flag;                     // 控制标志位
     QPixmap m_bgPixmap;
     QUdpSocket *m_udpListener;
+    BluetoothProtocolParser bluetoothprotocolparser;
 };
+
+
+
+
 
 #endif // MAINWINDOW_H
