@@ -8,8 +8,6 @@
 #include <QTimer>
 #include <QFile>
 #include <QTextStream>
-#include <QTcpServer>
-#include <QTcpSocket>
 #include <QDir>
 #include <QFileDialog>
 #include <QStandardPaths>
@@ -26,8 +24,6 @@
 #include "about.h"
 #include "setting.h"
 #include <QPainter>
-#include <QUdpSocket>
-#include <QNetworkInterface>
 
 const int NumMax = 5000;
 
@@ -90,6 +86,9 @@ private slots:
     void on_pushButton_3_clicked();
 
     void dataReceive();
+    void btReceive();
+
+    void processPacket(const QByteArray &packet);
 
     void on_pushButton_5_clicked();
 
@@ -101,13 +100,7 @@ private slots:
 
     void deleteSelectedRow();
 
-    void onNewConnection();      // 新客户端连接
-    void onReadyRead();          // 接收数据
-    void onClientDisconnected(); // 客户端断开
-
     QStringList getTableThirdColumn(QTableWidget *tableWidget);
-
-    void onUdpBroadcastReceived();
 
     void on_pushButton_4_clicked();
 
@@ -132,12 +125,10 @@ private:
     float tempResult = 0.0;
     QList<double> measureValues;
     QSerialPort *serial;
-    QTcpServer *tcpServer;             // TCP服务器（改为成员，避免局部变量销毁）
-    QList<QTcpSocket *> clientSockets; // TCP客户端连接列表
+    QSerialPort *btserial;
     QLabel *statusLabel;               // 状态显示标签（若.ui中已添加，可改为ui->statusLabel）
     int take_flag;                     // 控制标志位
     QPixmap m_bgPixmap;
-    QUdpSocket *m_udpListener;
     BluetoothProtocolParser bluetoothprotocolparser;
 };
 

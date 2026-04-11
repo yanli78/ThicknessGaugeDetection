@@ -52,6 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->radioButton->setEnabled(false);
     // ui->comboBox_2->setCurrentIndex(2);
     connect(serial, &QSerialPort::readyRead, this, &MainWindow::dataReceive);
+    connect(btserial, &QSerialPort::readyRead, this, &MainWindow::btReceive);
     ui->tableWidget->setHorizontalHeaderLabels({"测量结果"});
     ui->tableWidget->setColumnCount(1);
     ui->label_max->setText("最大值：");
@@ -72,18 +73,6 @@ MainWindow::MainWindow(QWidget *parent)
     // 触发重绘
     this->update();
 
-        // TCP服务器初始化（成员变量，不再是局部变量）
-    tcpServer = new QTcpServer(this);
-    connect(tcpServer, &QTcpServer::newConnection, this, &MainWindow::onNewConnection);
-    // 监听8080端口
-    if (!tcpServer->listen(QHostAddress::Any, 8080))
-    {
-        statusLabel->setText(QString("监听失败：%1").arg(tcpServer->errorString()));
-    }
-    else
-    {
-        statusLabel->setText("状态：监听中 (端口8080)");
-    }
     // serial->setPortName("COM5");
     serial->setBaudRate(QSerialPort::Baud9600);       // 设置波特率
     serial->setDataBits(QSerialPort::Data8);            // 设置数据位
@@ -91,19 +80,13 @@ MainWindow::MainWindow(QWidget *parent)
     serial->setStopBits(QSerialPort::OneStop);          // 设置停止位
     serial->setFlowControl(QSerialPort::NoFlowControl); // 设置流控制
 
-    this->setFocusPolicy(Qt::StrongFocus);
+    btserial->setBaudRate(QSerialPort::Baud115200);       // 设置波特率
+    btserial->setDataBits(QSerialPort::Data8);            // 设置数据位
+    btserial->setParity(QSerialPort::NoParity);           // 设置校验位
+    btserial->setStopBits(QSerialPort::OneStop);          // 设置停止位
+    btserial->setFlowControl(QSerialPort::NoFlowControl); // 设置流控制
 
-    m_udpListener = new QUdpSocket(this);
-    // 绑定 UDP 9999 端口，允许其他地址绑定 (ShareAddress)
-    if (m_udpListener->bind(QHostAddress::Any, 9999, QUdpSocket::ShareAddress))
-    {
-        connect(m_udpListener, &QUdpSocket::readyRead, this, &MainWindow::onUdpBroadcastReceived);
-        statusLabel->setText("状态：TCP监听8080 / UDP发现监听9999");
-    }
-    else
-    {
-        statusLabel->setText("UDP端口9999绑定失败！");
-    }
+    this->setFocusPolicy(Qt::StrongFocus);
 }
 
 MainWindow::~MainWindow()
@@ -190,15 +173,27 @@ void MainWindow::on_pushButton_clicked()
             _com.close();
         }
     }
+    ui->comboBox_2->clear();
+    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
+    {
+        QSerialPort _com;
+        _com.setPort(info);
+        if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
+        {
+            ui->comboBox_2->addItem(info.portName());
+            _com.close();
+        }
+    }
 }
 
 void MainWindow::on_pushButton_2_clicked()
 {
 
-    if (!serial->isOpen())
+    if (!serial->isOpen()&& !btserial->isOpen())
     {
-        serialSet();
-        if (serial->open(QIODevice::ReadWrite))
+        serial->setPortName(ui->comboBox->currentText());
+        btserial->setPortName(ui->comboBox_2->currentText());
+        if (serial->open(QIODevice::ReadWrite) && btserial->open(QIODevice::ReadWrite))
         {
             // ui->radioButton->setChecked(true);
             ui->pushButton_2->setText("关闭串口");
@@ -211,15 +206,13 @@ void MainWindow::on_pushButton_2_clicked()
     else
     {
         serial->close();
+        btserial->close();
         // ui->radioButton->setChecked(false);
         ui->pushButton_2->setText("打开串口");
     }
 }
 
-void MainWindow::serialSet()
-{
-    serial->setPortName(ui->comboBox->currentText());
-}
+
 
 const QByteArray hardcodeHexData = QByteArray::fromHex("2a43181c000000000000000000000000");
 void MainWindow::on_pushButton_3_clicked()
@@ -281,6 +274,48 @@ void MainWindow::dataReceive()
 
         updateStatistics(); // 立即更新最大值/最小值/平均值
 }
+
+QByteArray m_buffer;
+void MainWindow::btReceive()
+{
+    // 1. 读取所有当前可用的数据
+    QByteArray data = btserial->readAll();
+
+    // 2. 将新数据追加到全局缓冲区
+    m_buffer.append(data);
+
+    // 3. 判断接收信息 (核心逻辑)
+    // 这里假设协议是：以换行符 \n 作为一条信息的结束
+    while (m_buffer.contains('\n')) {
+        // 找到换行符的位置
+        int index = m_buffer.indexOf('\n');
+
+        // 从缓冲区中截取一条完整的信息 (0 到 index 之间)
+        QByteArray packet = m_buffer.left(index);
+
+        // 移除已处理的数据 (包括换行符本身，index+1)
+        m_buffer = m_buffer.mid(index + 1);
+
+        // 4. 处理这条完整的信息
+        qDebug() << "收到完整信息:" << packet;
+
+        // 在这里添加你的业务逻辑，比如解析数据、更新UI等
+        processPacket(packet);
+    }
+}
+
+
+// 自定义处理数据包的函数
+void MainWindow::processPacket(const QByteArray &packet)
+{
+    // 示例：如果收到 "ON"，做某事；收到 "OFF"，做另一件事
+    if (packet == "ON") {
+        // ui->label->setText("设备开启");
+    } else if (packet == "OFF") {
+        // ui->label->setText("设备关闭");
+    }
+}
+
 
 void MainWindow::on_pushButton_5_clicked()
 {
@@ -372,115 +407,6 @@ void MainWindow::dowork()
         }
     }
     // ui->textBrowser->append("3");
-}
-
-void MainWindow::onNewConnection()
-{
-    QTcpSocket *clientSocket = tcpServer->nextPendingConnection();
-    clientSockets.append(clientSocket);
-
-    // 绑定信号槽
-    connect(clientSocket, &QTcpSocket::readyRead, this, &MainWindow::onReadyRead);
-    connect(clientSocket, &QTcpSocket::disconnected, this, &MainWindow::onClientDisconnected);
-    connect(clientSocket, &QTcpSocket::disconnected, clientSocket, &QTcpSocket::deleteLater);
-
-    // 更新状态
-    QString clientIp = clientSocket->peerAddress().toString();
-    statusLabel->setText(QString("状态：已连接 - %1").arg(clientIp));
-    // msgDisplay->append(QString("[%1] 客户端连接：%2").arg(
-    // QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"), clientIp));
-}
-
-// 接收数据处理
-void MainWindow::onReadyRead()
-{
-    QTcpSocket *clientSocket = qobject_cast<QTcpSocket *>(sender());
-    if (!clientSocket)
-        return;
-
-    // 读取所有数据（树莓派发送的是ASCII字符串）
-    QByteArray data = clientSocket->readAll();
-    QString msg = QString::fromUtf8(data).trimmed(); // 去除换行符
-
-    // ui->textBrowser->append(msg);
-
-    if (msg == "BTN1")
-    {
-        key_flag = 1;
-        // QMessageBox::warning(this,"错误","2！");
-        qDebug() << "bnt1";
-        serial->write(hardcodeHexData);
-        // ui->textBrowser->append("3");
-        // ui->textBrowser->append("1");
-    }
-}
-
-// 客户端断开连接处理
-void MainWindow::onClientDisconnected()
-{
-    QTcpSocket *clientSocket = qobject_cast<QTcpSocket *>(sender());
-    if (!clientSocket)
-        return;
-
-    QString clientIp = clientSocket->peerAddress().toString();
-    // msgDisplay->append(QString("[%1] 客户端断开：%2").arg(
-    //::currentDateTime().toString("yyyy-MM-dd HH:mm:ss"), clientIp));
-
-    // 从列表中移除
-    clientSockets.removeOne(clientSocket);
-
-    // 更新状态
-    if (clientSockets.isEmpty())
-    {
-        statusLabel->setText("状态：等待连接...");
-    }
-    else
-    {
-        statusLabel->setText(QString("状态：已连接 - %1个客户端").arg(clientSockets.size()));
-    }
-}
-
-void MainWindow::onUdpBroadcastReceived()
-{
-    while (m_udpListener->hasPendingDatagrams())
-    {
-        QByteArray datagram;
-        datagram.resize(m_udpListener->pendingDatagramSize());
-        QHostAddress senderAddr; // 用来存树莓派的 IP
-        quint16 senderPort;      // 用来存树莓派的端口
-
-        // 读取数据
-        m_udpListener->readDatagram(datagram.data(), datagram.size(), &senderAddr, &senderPort);
-        QString msg = QString::fromUtf8(datagram).trimmed();
-
-        // 如果收到特定的暗号 "DISCOVER_SERVER"
-        if (msg == "DISCOVER_SERVER")
-        {
-            // 获取本机的局域网 IP 地址
-            QString localIp;
-            QList<QHostAddress> ipList = QNetworkInterface::allAddresses();
-            for (const QHostAddress &addr : ipList)
-            {
-                // 找 IPv4 且不是 127.0.0.1 的地址
-                if (addr.protocol() == QAbstractSocket::IPv4Protocol && !addr.isLoopback())
-                {
-                    // 这里可以简单过滤一下，通常局域网是 192.168 或 10 开头
-                    // 为了通用性，我们直接取第一个非本地回环地址，或者你可以根据需要筛选
-                    localIp = addr.toString();
-                    break;
-                }
-            }
-
-            if (localIp.isEmpty())
-                localIp = "127.0.0.1";
-
-            // 构造回复消息，格式例如："SERVER_IP:192.168.1.105:8080"
-            QString replyMsg = QString("SERVER_IP:%1:8080").arg(localIp);
-
-            // 把这个消息发回给树莓派
-            m_udpListener->writeDatagram(replyMsg.toUtf8(), senderAddr, senderPort);
-        }
-    }
 }
 
 QStringList MainWindow::getTableThirdColumn(QTableWidget *tableWidget)

@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort Network AxContainer)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets SerialPort AxContainer)
 
 qt_add_executable(nb
     main.cpp
@@ -29,6 +29,5 @@ target_link_libraries(nb PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::SerialPort
-    Qt6::Network
     Qt6::AxContainer
 )
