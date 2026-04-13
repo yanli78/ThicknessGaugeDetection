@@ -122,12 +122,13 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
-    float tempResult = 0.0;
+    double tmpresult = 0.0;
     QList<double> measureValues;
     QSerialPort *serial;
     QSerialPort *btserial;
     QLabel *statusLabel;               // 状态显示标签（若.ui中已添加，可改为ui->statusLabel）
     int take_flag;                     // 控制标志位
+    int btn = 0;                      // 蓝牙按钮标志位
     QPixmap m_bgPixmap;
     BluetoothProtocolParser bluetoothprotocolparser;
 };

@@ -57,6 +57,7 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 #include "key_exti.h"
 #include "uart_debug.h"
+#include <stdio.h>
 /* USER CODE END 0 */
 
 /**
@@ -101,11 +102,8 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     if (key1_flag) {
-      HAL_Delay(20); // 主循环中安全消抖（20ms足够）
-      if (HAL_GPIO_ReadPin(KEY1_GPIO_PORT, KEY1_GPIO_PIN) == KEY_PRESSED) {
-        printf("Key1 pressed\r\n");
-      }
-      key1_flag = 0; // 清除标志位
+      key1_flag = 0; // 先清除标志位
+      printf("BTN1\r\n");
     }
   }
   /* USER CODE END 3 */

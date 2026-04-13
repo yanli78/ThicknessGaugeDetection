@@ -47,6 +47,7 @@ MainWindow::MainWindow(QWidget *parent)
     QTimer::singleShot(1000, this, [this]()
                        { on_pushButton_clear_clicked(); });
     serial = new QSerialPort(this);
+    btserial = new QSerialPort(this);
     statusLabel = new QLabel(this);
     this->statusBar()->addWidget(statusLabel);
     ui->radioButton->setEnabled(false);
@@ -74,7 +75,7 @@ MainWindow::MainWindow(QWidget *parent)
     this->update();
 
     // serial->setPortName("COM5");
-    serial->setBaudRate(QSerialPort::Baud9600);       // 设置波特率
+    serial->setBaudRate(QSerialPort::Baud115200);       // 设置波特率
     serial->setDataBits(QSerialPort::Data8);            // 设置数据位
     serial->setParity(QSerialPort::NoParity);           // 设置校验位
     serial->setStopBits(QSerialPort::OneStop);          // 设置停止位
@@ -212,19 +213,9 @@ void MainWindow::on_pushButton_2_clicked()
     }
 }
 
-
-
-const QByteArray hardcodeHexData = QByteArray::fromHex("2a43181c000000000000000000000000");
 void MainWindow::on_pushButton_3_clicked()
 {
-    ui->lineEdit_result->setText(QString::number(tempResult, 'f', 6));
-    if (!serial->isOpen())
-    {
-        QMessageBox::warning(this, "错误", "串口未打开，请先打开串口！");
-        return;
-    }
-    serial->write(hardcodeHexData);
-    // MainWindow::updataStatistics();
+    btn = 1 ;
 }
 
 // 在MainWindow类中定义成员变量（缓存不完整数据）
@@ -253,26 +244,10 @@ void MainWindow::dataReceive()
     }
 
     bluetoothprotocolparser.onDataReceived(m_dataCache);
-    double result = bluetoothprotocolparser.thick;
+    tmpresult = bluetoothprotocolparser.thick;
 
-        // ========== 表格插入数据（原有逻辑保留） ==========
-        int row = ui->tableWidget->rowCount();
-        ui->tableWidget->insertRow(row);
 
-        // 设置“测量结果”列（第2列）
-        QTableWidgetItem *resultItem = new QTableWidgetItem(QString::number(result, 'f', 2));
-        ui->tableWidget->setItem(row, 0, resultItem);
 
-        QScrollBar *vScrollBar = ui->tableWidget->verticalScrollBar();
-        if (vScrollBar)
-        { // 防护滚动条空指针
-            vScrollBar->setValue(vScrollBar->maximum());
-        }
-
-        // ========== 新增4：将有效数据存入统计列表 + 触发统计更新 ==========
-        measureValues.append(static_cast<double>(result)); // 转double存入统计列表
-
-        updateStatistics(); // 立即更新最大值/最小值/平均值
 }
 
 QByteArray m_buffer;
@@ -297,7 +272,7 @@ void MainWindow::btReceive()
         m_buffer = m_buffer.mid(index + 1);
 
         // 4. 处理这条完整的信息
-        qDebug() << "收到完整信息:" << packet;
+        //qDebug() << "收到完整信息:" << packet;
 
         // 在这里添加你的业务逻辑，比如解析数据、更新UI等
         processPacket(packet);
@@ -309,10 +284,10 @@ void MainWindow::btReceive()
 void MainWindow::processPacket(const QByteArray &packet)
 {
     // 示例：如果收到 "ON"，做某事；收到 "OFF"，做另一件事
-    if (packet == "ON") {
-        // ui->label->setText("设备开启");
-    } else if (packet == "OFF") {
-        // ui->label->setText("设备关闭");
+    if (packet == "BTN1\r") {
+        qDebug() << "收到完整信息:";
+        btn = 1;
+        qDebug() <<tmpresult;
     }
 }
 
@@ -324,7 +299,7 @@ void MainWindow::on_pushButton_5_clicked()
 
 void MainWindow::on_pushButton_finish_clicked()
 {
-    ui->lineEdit_result->setText(QString::number(tempResult, 'f', 2));
+    ui->lineEdit_result->setText(QString::number(tmpresult, 'f', 2));
 }
 
 void MainWindow::updateStatistics() // 建议修正拼写为updateStatistics（消除语义警告）
@@ -391,22 +366,29 @@ void MainWindow::on_pushButton_clear_clicked()
 
 void MainWindow::dowork()
 {
+    if(btn == 1){
+        int row = ui->tableWidget->rowCount();
+        ui->tableWidget->insertRow(row);
+        //qDebug() << tmpresult;
 
-    // 根据take_flag执行串口写入
-    if (key_flag == 1)
-    {
-        // ui->textBrowser->append("3");
-        if (serial->isOpen())
-        { // 增加判空，避免异常
-            // QMessageBox::warning(this,"错误","1！");
+        // 设置“测量结果”列（第2列）
+        QTableWidgetItem *resultItem = new QTableWidgetItem(QString::number(tmpresult, 'f', 2));
+        ui->tableWidget->setItem(row, 0, resultItem);
 
-            serial->write(hardcodeHexData);
-
-            // ui->textBrowser->append("2");
-            key_flag = 0;
+        QScrollBar *vScrollBar = ui->tableWidget->verticalScrollBar();
+        if (vScrollBar)
+        { // 防护滚动条空指针
+            vScrollBar->setValue(vScrollBar->maximum());
         }
+
+        // ========== 新增4：将有效数据存入统计列表 + 触发统计更新 ==========
+        measureValues.append(static_cast<double>(tmpresult)); // 转double存入统计列表
+
+        updateStatistics(); // 立即更新最大值/最小值/平均值
+        btn = 0;
     }
-    // ui->textBrowser->append("3");
+
+
 }
 
 QStringList MainWindow::getTableThirdColumn(QTableWidget *tableWidget)

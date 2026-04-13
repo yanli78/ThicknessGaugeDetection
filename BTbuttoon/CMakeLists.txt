@@ -42,7 +42,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
 )
 
-file(GLOB_RECURSE HARDWARE_SOURCES 
+file(GLOB_RECURSE BSP_SOURCES 
     "${CMAKE_CURRENT_SOURCE_DIR}/BSP/Src/*.c"
 )
 
