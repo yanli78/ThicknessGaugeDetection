@@ -163,27 +163,57 @@ QString MainWindow::findValidBgImage()
 
 void MainWindow::on_pushButton_clicked()
 {
+    // ====================== 处理 comboBox (CH340) ======================
     ui->comboBox->clear();
+    int ch340Index = -1; // 记录CH340端口的索引
     foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
     {
         QSerialPort _com;
         _com.setPort(info);
         if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
         {
-            ui->comboBox->addItem(info.portName());
+            QString portName = info.portName();
+            ui->comboBox->addItem(portName);
+
+            // 检测是否为CH340 (描述中包含"CH340"字符串，不区分大小写)
+            if (info.description().contains("CH340", Qt::CaseInsensitive))
+            {
+                ch340Index = ui->comboBox->count() - 1; // 记录当前索引
+            }
             _com.close();
         }
     }
+    // 自动选中CH340
+    if (ch340Index != -1)
+    {
+        ui->comboBox->setCurrentIndex(ch340Index);
+    }
+
+    // ====================== 处理 comboBox_2 (蓝牙串口) ======================
     ui->comboBox_2->clear();
+    int bluetoothIndex = -1; // 记录蓝牙串口的索引
     foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
     {
         QSerialPort _com;
         _com.setPort(info);
         if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
         {
-            ui->comboBox_2->addItem(info.portName());
+            QString portName = info.portName();
+            ui->comboBox_2->addItem(portName);
+
+            // 检测是否为蓝牙串口 (描述中包含"Bluetooth"或"蓝牙")
+            if (info.description().contains("Bluetooth", Qt::CaseInsensitive) ||
+                info.description().contains("蓝牙", Qt::CaseInsensitive))
+            {
+                bluetoothIndex = ui->comboBox_2->count() - 1; // 记录当前索引
+            }
             _com.close();
         }
+    }
+    // 自动选中蓝牙串口
+    if (bluetoothIndex != -1)
+    {
+        ui->comboBox_2->setCurrentIndex(bluetoothIndex);
     }
 }
 
