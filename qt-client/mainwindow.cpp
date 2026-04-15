@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QColor>
+#include "setting.h"
 
 int key_flag = 0;
 
@@ -773,43 +775,84 @@ void MainWindow::on_pushButton_4_clicked()
     setting->exec();
 }
 
-// ===================== 核心工具函数 =====================
-// 仅设置外边框
-void setOnlyOuterBorder(QAxObject *range)
-{
-    if (!range)
-        return;
-    QAxObject *borders = range->querySubObject("Borders");
-    if (!borders)
-        return;
+#ifdef HAS_QXLSX
 
-    // 仅外边框（左、右、上、下）
-    borders->querySubObject("Item(int)", 1)->setProperty("LineStyle", 1);
-    borders->querySubObject("Item(int)", 2)->setProperty("LineStyle", 1);
-    borders->querySubObject("Item(int)", 3)->setProperty("LineStyle", 1);
-    borders->querySubObject("Item(int)", 4)->setProperty("LineStyle", 1);
-    // 清空内边框
-    borders->querySubObject("Item(int)", 5)->setProperty("LineStyle", -4142);
-    borders->querySubObject("Item(int)", 6)->setProperty("LineStyle", -4142);
-    // 边框粗细
-    borders->setProperty("Weight", 2);
-    delete borders;
+// ===================== QXlsx 工具函数 =====================
+
+// 单行指定列合并
+bool mergeSingleRowColumns(QXlsx::Document *doc, const QString &sheetName, int targetRow, int col1, int col2, const QVariant &value)
+{
+    if (!doc || targetRow < 1 || col1 >= col2 || col1 < 1 || col2 < 1)
+    {
+        qDebug() << "合并参数非法：targetRow=" << targetRow << " col1=" << col1 << " col2=" << col2;
+        return false;
+    }
+
+    try
+    {
+        QXlsx::Format format;
+        format.setHorizontalAlignment(QXlsx::Format::AlignHCenter);
+        format.setVerticalAlignment(QXlsx::Format::AlignVCenter);
+        format.setBorderStyle(QXlsx::Format::BorderThin);
+
+        if (!doc->selectSheet(sheetName)) {
+            qWarning() << "无法选中工作表:" << sheetName;
+            return false;
+        }
+
+        doc->mergeCells(QXlsx::CellRange(targetRow, col1, targetRow, col2));
+
+        doc->write(targetRow, col1, value, format);
+
+        return true;
+    }
+    catch (...)
+    {
+        qDebug() << "QXlsx合并异常";
+        return false;
+    }
 }
 
-// 取消指定行的所有合并（关键：确保数据能填入）
-void unmergeRowAllColumns(QAxObject *ws, int targetRow)
+// 取消指定行的所有合并
+void unmergeRowAllColumns(QXlsx::Document *doc, const QString &sheetName, int targetRow)
 {
-    if (!ws || targetRow < 1)
+    if (!doc || targetRow < 1)
         return;
     try
     {
-        // 拼接该行的全部列范围（A-S）
-        QString rangeStr = QString("A%1:S%1").arg(targetRow);
-        QAxObject *range = ws->querySubObject("Range(const QString&)", rangeStr);
-        if (range)
+
+        // 1. 先选中目标工作表
+        if (!doc->selectSheet(sheetName)) {
+            qWarning() << "无法选中工作表:" << sheetName;
+            return;
+        }
+
+        // 2. 获取当前工作表对象（注意：需包含 QXlsx/Worksheet.h 头文件）
+        QXlsx::Worksheet* worksheet = doc->currentWorksheet();
+        if (!worksheet) {
+            qWarning() << "无法获取工作表对象";
+            return;
+        }
+
+        // 3. 从 Worksheet 对象获取合并单元格列表
+        QList<QXlsx::CellRange> merges = worksheet->mergedCells();
+
+        // 4. 遍历并解除合并
+        for (const QXlsx::CellRange &range : merges)
         {
-            range->dynamicCall("UnMerge()"); // 取消该行所有合并
-            delete range;
+            if (range.firstRow() <= targetRow && range.lastRow() >= targetRow)
+            {
+                // unmergeCells 可以直接用 Document 调用，也可以用 Worksheet 调用
+                doc->unmergeCells(range);
+            }
+        }
+
+        for (const QXlsx::CellRange &range : merges)
+        {
+            if (range.firstRow() <= targetRow && range.lastRow() >= targetRow)
+            {
+                doc->unmergeCells(range);
+            }
         }
     }
     catch (...)
@@ -818,49 +861,7 @@ void unmergeRowAllColumns(QAxObject *ws, int targetRow)
     }
 }
 
-// 单行指定列合并（分步拼接+严格校验）
-bool mergeSingleRowColumns(QAxObject *ws, int targetRow, int col1, int col2, const QVariant &value)
-{
-    // 1. 先取消该行所有合并
-    unmergeRowAllColumns(ws, targetRow);
-
-    // 2. 严格校验参数
-    if (!ws || targetRow < 1 || col1 >= col2 || col1 < 1 || col2 < 1)
-    {
-        qDebug() << "合并参数非法：targetRow=" << targetRow << " col1=" << col1 << " col2=" << col2;
-        return false;
-    }
-
-    // 3. 分步拼接范围（绝对正确）
-    QString col1Char = QString(QChar('A' + col1 - 1));
-    QString col2Char = QString(QChar('A' + col2 - 1));
-    QString cell1 = col1Char + QString::number(targetRow);
-    QString cell2 = col2Char + QString::number(targetRow);
-    QString rangeStr = cell1 + ":" + cell2;
-    qDebug() << "合并范围：" << rangeStr;
-
-    try
-    {
-        QAxObject *range = ws->querySubObject("Range(const QString&)", rangeStr);
-        if (!range)
-        {
-            qDebug() << "获取Range失败：" << rangeStr;
-            return false;
-        }
-        range->dynamicCall("Merge()");
-        range->setProperty("Value", value);
-        range->setProperty("HorizontalAlignment", -4108);
-        setOnlyOuterBorder(range);
-
-        delete range;
-        return true;
-    }
-    catch (...)
-    {
-        qDebug() << "Excel合并异常：范围=" << rangeStr;
-        return false;
-    }
-}
+#endif
 
 // 辅助：拆分编号
 void MainWindow::splitCode(const QString &code, QString &prefix, int &num)
@@ -878,86 +879,69 @@ void MainWindow::splitCode(const QString &code, QString &prefix, int &num)
     }
 }
 
-// 【核心修复】精准查找最后一条业务数据行（排除检测行）
-int MainWindow::findLastDataRow(QAxObject *ws, int col)
-{
-    if (!ws)
-        return START_ROW;
-    int lastRow = START_ROW - 1; // 初始为起始行前一行
+#ifdef HAS_QXLSX
 
-    // 从最大行往起始行找，排除检测行
+// 【核心修复】精准查找最后一条业务数据行（排除检测行）
+int MainWindow::findLastDataRow(QXlsx::Document *doc, const QString &sheetName, int col)
+{
+    if (!doc)
+        return START_ROW - 1;
+    int lastRow = START_ROW - 1;
+
     for (int row = MAX_SEARCH_ROW; row >= START_ROW; row--)
     {
-        // 先取消该行合并（避免读取值失败）
-        unmergeRowAllColumns(ws, row);
+        unmergeRowAllColumns(doc, sheetName, row);
 
-        // 读取A列值（序号）
-        QAxObject *cellSerial = ws->querySubObject("Cells(int, int)", row, COL_SERIAL);
-        QString valSerial = cellSerial ? cellSerial->property("Value").toString().trimmed() : "";
-        if (cellSerial)
-            delete cellSerial;
+        if (!doc->selectSheet(sheetName)) {
+            qWarning() << "无法选中工作表:" << sheetName;
+        }
 
-        // 读取任意数据列值（判断是否为业务行）
-        QAxObject *cellData = ws->querySubObject("Cells(int, int)", row, COL_DATA_START);
-        QString valData = cellData ? cellData->property("Value").toString().trimmed() : "";
-        if (cellData)
-            delete cellData;
+        // 2. 读取数据（移除所有 read 函数最后的 sheetName 参数）
+        QString valSerial = doc->read(row, COL_SERIAL).toString().trimmed();
+        QString valData = doc->read(row, COL_DATA_START).toString().trimmed();
+        QString valDetect = doc->read(row, DETECT_COL_START).toString().trimmed();
 
-        // 读取检测行标识（排除检测行）
-        QAxObject *cellDetect = ws->querySubObject("Cells(int, int)", row, DETECT_COL_START);
-        QString valDetect = cellDetect ? cellDetect->property("Value").toString().trimmed() : "";
-        if (cellDetect)
-            delete cellDetect;
-
-        // 判定条件：有序号+有数据+不是检测行
         if (!valSerial.isEmpty() && !valData.isEmpty() && !valDetect.contains("检测："))
         {
             lastRow = row;
-            break; // 找到最后一行业务数据，停止查找
+            break;
         }
     }
 
-    // 确保返回行号≥1，若没找到则返回起始行-1（续填时从起始行开始）
     return qMax(lastRow, START_ROW - 1);
 }
 
-// 辅助：设置单元格值（填充前取消合并）
-// 辅助：设置单元格值（填充前取消合并+取消居中，新增字体颜色控制）
-bool MainWindow::setCellValue(QAxObject *ws, int row, int col, const QVariant &val)
+// 辅助：设置单元格值
+bool MainWindow::setCellValue(QXlsx::Document *doc, const QString &sheetName, int row, int col, const QVariant &val)
 {
-    if (!ws || row < 1 || col < 1)
+    if (!doc || row < 1 || col < 1)
         return false;
 
-    // 先取消当前行合并+取消居中对齐
-    unmergeRowAllColumns(ws, row);
+    unmergeRowAllColumns(doc, sheetName, row);
 
     try
     {
-        QAxObject *cell = ws->querySubObject("Cells(int, int)", row, col);
-        if (!cell)
-            return false;
+        QXlsx::Format format;
+        format.setBorderStyle(QXlsx::Format::BorderThin);
 
-        // 1. 设置单元格值
-        cell->setProperty("Value", val);
-
-        // 2. 新增：判断是否为结论列，且内容是不合格 → 设为红色
-        bool isSingleConclusion = (col == COL_SINGLE_CONCL); // 单行结论列（N列）
+        bool isSingleConclusion = (col == COL_SINGLE_CONCL);
         bool isUnPass = (val.toString() == "不合格");
         if (isSingleConclusion && isUnPass)
         {
-            setFontColor(cell, FONT_COLOR_RED); // 不合格→红色
+            format.setFontColor(Qt::red);
         }
         else
         {
-            setFontColor(cell, FONT_COLOR_BLACK); // 合格/其他→黑色
+            format.setFontColor(Qt::black);
         }
 
-        // 3. 常规对齐+外边框（原有逻辑）
-        cell->setProperty("HorizontalAlignment", ALIGN_GENERAL);
-        cell->setProperty("VerticalAlignment", ALIGN_GENERAL);
-        setOnlyOuterBorder(cell);
+        // 1. 先选中目标工作表
+        if (!doc->selectSheet(sheetName)) {
+            qWarning() << "无法选中工作表:" << sheetName;
+        }
 
-        delete cell;
+        // 2. 写入数据（移除最后的 sheetName 参数）
+        doc->write(row, col, val, format);
         return true;
     }
     catch (...)
@@ -968,61 +952,64 @@ bool MainWindow::setCellValue(QAxObject *ws, int row, int col, const QVariant &v
 }
 
 // 辅助：多行单列合并
-// 辅助：多行单列合并（仅合并区域居中，新增字体颜色控制）
-bool MainWindow::mergeMultiRowSingleCol(QAxObject *ws, int sRow, int eRow, int col, const QVariant &val)
+bool MainWindow::mergeMultiRowSingleCol(QXlsx::Document *doc, const QString &sheetName, int sRow, int eRow, int col, const QVariant &val)
 {
-    if (!ws || sRow < 1 || eRow < 1 || sRow > eRow || col < 1)
+    if (!doc || sRow < 1 || eRow < 1 || sRow > eRow || col < 1)
         return false;
     try
     {
-        QString colChar = QString(QChar('A' + col - 1));
-        QString rangeStr = QString("%1%2:%1%3").arg(colChar).arg(sRow).arg(eRow);
-        QAxObject *range = ws->querySubObject("Range(const QString&)", rangeStr);
-        if (!range)
-            return false;
+        QXlsx::Format format;
+        format.setHorizontalAlignment(QXlsx::Format::AlignHCenter);
+        format.setVerticalAlignment(QXlsx::Format::AlignVCenter);
+        format.setBorderStyle(QXlsx::Format::BorderThin);
 
-        // 1. 合并+设值+居中（原有逻辑）
-        range->dynamicCall("Merge()");
-        range->setProperty("Value", val);
-        range->setProperty("HorizontalAlignment", ALIGN_CENTER);
-        range->setProperty("VerticalAlignment", ALIGN_CENTER);
-        setOnlyOuterBorder(range);
-
-        // 2. 新增：判断是否为分组结论列，且内容是组不合格 → 设为红色
-        bool isGroupConclusion = (col == COL_GROUP_CONCL); // 分组结论列（O列）
+        bool isGroupConclusion = (col == COL_GROUP_CONCL);
         bool isGroupUnPass = (val.toString() == "组不合格");
         if (isGroupConclusion && isGroupUnPass)
         {
-            setFontColor(range, FONT_COLOR_RED); // 组不合格→红色
+            format.setFontColor(Qt::red);
         }
         else
         {
-            setFontColor(range, FONT_COLOR_BLACK); // 组合格→黑色
+            format.setFontColor(Qt::black);
         }
 
-        delete range;
+        // 1. 先选中目标工作表
+        if (!doc->selectSheet(sheetName)) {
+            qWarning() << "无法选中工作表:" << sheetName;
+
+        }
+
+        // 2. 合并单元格（仅传范围，无需 sheetName）
+        doc->mergeCells(QXlsx::CellRange(sRow, col, eRow, col));
+
+        // 3. 写入数据（仅传行、列、值、格式，无需 sheetName）
+        doc->write(sRow, col, val, format);
         return true;
     }
     catch (...)
     {
-        // qDebug() << "多行合并异常：范围=" << rangeStr;
         return false;
     }
 }
 
-// 辅助：清空指定行内容（覆盖检测行前先清空）
-void MainWindow::clearRowContent(QAxObject *ws, int targetRow)
+// 辅助：清空指定行内容
+void MainWindow::clearRowContent(QXlsx::Document *doc, const QString &sheetName, int targetRow)
 {
-    if (!ws || targetRow < 1)
+    if (!doc || targetRow < 1)
         return;
     try
     {
-        QString rangeStr = QString("A%1:S%1").arg(targetRow);
-        QAxObject *range = ws->querySubObject("Range(const QString&)", rangeStr);
-        if (range)
+        for (int col = 1; col <= 20; col++)
         {
-            range->dynamicCall("ClearContents()"); // 清空内容（保留格式）
-            delete range;
+            // 1. 先选中目标工作表
+            if (!doc->selectSheet(sheetName)) {
+                qWarning() << "无法选中工作表:" << sheetName;
+                return; // 或根据函数逻辑返回错误值
+            }
+
+            // 2. 写入空值（移除最后的 sheetName 参数）
+            doc->write(targetRow, col, QVariant());
         }
     }
     catch (...)
@@ -1032,27 +1019,42 @@ void MainWindow::clearRowContent(QAxObject *ws, int targetRow)
 }
 
 // 辅助：清空起始行后所有数据（重填用）
-void MainWindow::clearStartRowData(QAxObject *ws)
+void MainWindow::clearStartRowData(QXlsx::Document *doc, const QString &sheetName)
 {
-    if (!ws)
+    if (!doc)
         return;
     try
     {
-        QString rangeStr = QString("A%1:S%2")
-                               .arg(START_ROW)
-                               .arg(MAX_SEARCH_ROW);
-        QAxObject *range = ws->querySubObject("Range(const QString&)", rangeStr);
-        if (range)
+        for (int row = START_ROW; row <= MAX_SEARCH_ROW; row++)
         {
-            range->dynamicCall("ClearContents()");
-            delete range;
+            clearRowContent(doc, sheetName, row);
         }
     }
     catch (...)
     {
-        // qDebug() << "清空数据异常：范围=" << rangeStr;
     }
 }
+
+void MainWindow::setFontColor(QXlsx::Format &format, const QColor &color)
+{
+    format.setFontColor(color);
+}
+
+void MainWindow::setvalue(QXlsx::Document *doc, const QString &sheetName, int row, int col, const QVariant &val)
+{
+    if (!doc)
+        return;
+    // 1. 先选中目标工作表
+    if (!doc->selectSheet(sheetName)) {
+        qWarning() << "无法选中工作表:" << sheetName;
+        return; // 或根据函数逻辑返回错误值
+    }
+
+    // 2. 写入数据（移除最后的 sheetName 参数）
+    doc->write(row, col, val);
+}
+
+#endif
 
 // 辅助：单行结论
 QString MainWindow::getSingleConclusion(double avg, double min)
@@ -1092,18 +1094,12 @@ QString MainWindow::getGroupConclusion(QMap<int, double> &avgMap, int sRow, int 
     return isPass ? "合格" : "不合格";
 }
 
-void MainWindow::setvalue(QAxObject *ws, int row, int col, const QVariant &val)
-{
-    QAxObject *cell = ws->querySubObject("Cells(int, int)", row, col);
-    // if (!cell) return false;
-
-    // 1. 设置单元格值
-    cell->setProperty("Value", val);
-    delete cell;
-}
-
 void MainWindow::saveToFile()
 {
+#ifndef HAS_QXLSX
+    QMessageBox::warning(this, "提示", "QXlsx 库未集成，Excel 导出功能不可用");
+    return;
+#else
 
     // 1. 路径处理
     QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
@@ -1138,9 +1134,9 @@ void MainWindow::saveToFile()
 
     // 5. 生成测试数据
     QStringList dataList = getTableThirdColumn(ui->tableWidget);
-    for (int i = 0; i < 23; i++){
-        dataList.append(QString::number(48.0 + i * 0.1, 'f', 1));
-    }
+    // for (int i = 0; i < 23; i++){
+    //     dataList.append(QString::number(48.0 + i * 0.1, 'f', 1));
+    // }
     if (dataList.isEmpty())
     {
         QMessageBox::warning(this, "提示", "无数据");
@@ -1148,50 +1144,16 @@ void MainWindow::saveToFile()
     }
 
     // 6. Excel初始化
-    QAxObject *excel = nullptr;
-    QAxObject *workbook = nullptr;
-    QAxObject *ws = nullptr;
-    try
+    QXlsx::Document doc(savePath);
+    if (!doc.load())
     {
-        excel = new QAxObject("Excel.Application");
-        if (!excel)
-        {
-            QMessageBox::critical(this, "错误", "Excel初始化失败");
-            return;
-        }
-        excel->setProperty("Visible", false);
-        excel->setProperty("DisplayAlerts", false);
-
-        QAxObject *workbooks = excel->querySubObject("Workbooks");
-        workbook = workbooks->querySubObject("Open(const QString&)", savePath);
-        workbooks->deleteLater();
-        if (!workbook)
-        {
-            QMessageBox::critical(this, "错误", "打开Excel文件失败");
-            delete excel;
-            return;
-        }
-
-        ws = workbook->querySubObject("Worksheets(const QString&)", sheetName);
-        if (!ws)
-        {
-            QMessageBox::critical(this, "错误", QString("Sheet%1不存在").arg(sheetName));
-            workbook->dynamicCall("Close(bool)", false);
-            delete workbook;
-            delete excel;
-            return;
-        }
-        ws->dynamicCall("Activate()");
+        QMessageBox::critical(this, "错误", "打开Excel文件失败");
+        return;
     }
-    catch (...)
+
+    if (!doc.selectSheet(sheetName))
     {
-        QMessageBox::critical(this, "Excel初始化异常", "无法初始化Excel，请检查是否安装Excel或ActiveQt配置");
-        if (ws)
-            delete ws;
-        if (workbook)
-            delete workbook;
-        if (excel)
-            delete excel;
+        QMessageBox::critical(this, "错误", QString("Sheet%1不存在").arg(sheetName));
         return;
     }
 
@@ -1203,50 +1165,40 @@ void MainWindow::saveToFile()
 
     if (isNewFill)
     {
-        // 重填：清空起始行后所有数据，从起始行开始
-        clearStartRowData(ws);
-        // QMessageBox::information(this, "提示", "已清空所有数据，开始从头填充");
+        clearStartRowData(&doc, sheetName);
         currRow = START_ROW;
         serialNum = 1;
         codeNum = 1001;
     }
     else
     {
-        // 续填：精准找到最后业务数据行，从下一行开始（覆盖检测行）
-        int lastDataRow = findLastDataRow(ws, COL_SERIAL);
+        int lastDataRow = findLastDataRow(&doc, sheetName, COL_SERIAL);
         currRow = lastDataRow + 1;
-        // 确保行号≥1
         currRow = qMax(currRow, 1);
 
-        // 读取最后序号/编号（续用）
         if (lastDataRow >= START_ROW)
         {
-            QAxObject *lastSerial = ws->querySubObject("Cells(int,int)", lastDataRow, COL_SERIAL);
-            if (lastSerial && !lastSerial->isNull())
-            {
-                serialNum = lastSerial->property("Value").toInt() + 1;
-                delete lastSerial;
+            // 1. 先选中目标工作表
+            if (!doc.selectSheet(sheetName)) {
+                qWarning() << "无法选中工作表:" << sheetName;
+                return; // 或根据函数逻辑返回错误值
             }
 
-            QAxObject *lastCode = ws->querySubObject("Cells(int,int)", lastDataRow, COL_CODE);
-            if (lastCode && !lastCode->isNull())
-            {
-                QString prefix;
-                splitCode(lastCode->property("Value").toString().trimmed(), prefix, codeNum);
-                codeNum += 1;
-                delete lastCode;
-            }
+            // 2. 读取数据（移除所有 read 函数最后的 sheetName 参数）
+            serialNum = doc.read(lastDataRow, COL_SERIAL).toInt() + 1;
+            QString lastCodeStr = doc.read(lastDataRow, COL_CODE).toString().trimmed();
+            QString prefix;
+            splitCode(lastCodeStr, prefix, codeNum);
+            codeNum += 1;
         }
         else
         {
-            // 若没找到历史数据，从起始行开始
             currRow = START_ROW;
             serialNum = 1;
             codeNum = 1001;
         }
 
-        // 续填前：清空目标行（检测行）内容，确保覆盖
-        clearRowContent(ws, currRow);
+        clearRowContent(&doc, sheetName, currRow);
     }
     QString content = ui->lineEdit_2->text();
     QString content2 = ui->lineEdit_3->text();
@@ -1262,31 +1214,27 @@ void MainWindow::saveToFile()
         if (currRow < 1)
             currRow = 1;
 
-        // 8.1 清空当前行（确保无残留数据）
-        clearRowContent(ws, currRow);
+        clearRowContent(&doc, sheetName, currRow);
 
-        // 8.2 基础信息（序号、编号、规格）
         if (COL_SERIAL)
-            setCellValue(ws, currRow, COL_SERIAL, serialNum);
+            setCellValue(&doc, sheetName, currRow, COL_SERIAL, serialNum);
         if (COL_CODE && !content2.isEmpty())
-            setCellValue(ws, currRow, COL_CODE, QString("%1-%2").arg(content2).arg(codeNum));
+            setCellValue(&doc, sheetName, currRow, COL_CODE, QString("%1-%2").arg(content2).arg(codeNum));
         if (COL_SPEC)
-            setCellValue(ws, currRow, COL_SPEC, content);
+            setCellValue(&doc, sheetName, currRow, COL_SPEC, content);
 
-        // 8.3 业务数据（D列开始）
         QList<double> rowVals;
         int dataCount = 0;
         for (int i = 0; i < DATA_PER_ROW && dataIdx < dataList.size(); i++)
         {
             int col = COL_DATA_START + i;
             double val = dataList[dataIdx].toDouble();
-            setCellValue(ws, currRow, col, val);
+            setCellValue(&doc, sheetName, currRow, col, val);
             rowVals.append(val);
             dataIdx++;
             dataCount++;
         }
 
-        // 8.4 计算统计值（平均值、最小值）
         bool isDataEnough = (dataCount >= DATA_PER_ROW);
         rowDataEnoughMap[currRow] = isDataEnough;
 
@@ -1300,27 +1248,23 @@ void MainWindow::saveToFile()
 
         filledRows.append(currRow);
 
-        // 8.5 单行统计列（平均值、最小值、结论）
         if (COL_ROW_AVG > 0 && rowVals.size() >= 1)
-            setCellValue(ws, currRow, COL_ROW_AVG, QString::number(rowAvg, 'f', 1));
+            setCellValue(&doc, sheetName, currRow, COL_ROW_AVG, QString::number(rowAvg, 'f', 1));
         if (COL_ROW_MIN > 0 && rowVals.size() >= 1)
-            setCellValue(ws, currRow, COL_ROW_MIN, QString::number(rowMin, 'f', 1));
+            setCellValue(&doc, sheetName, currRow, COL_ROW_MIN, QString::number(rowMin, 'f', 1));
 
-        // 6. 单行结论（仅数据充足时显示）
         if (COL_SINGLE_CONCL > 0 && isDataEnough && rowVals.size() >= 1)
         {
             QString singleConcl = getSingleConclusion(rowAvg, rowMin);
             if (!singleConcl.isEmpty())
             {
-                setCellValue(ws, currRow, COL_SINGLE_CONCL, singleConcl);
+                setCellValue(&doc, sheetName, currRow, COL_SINGLE_CONCL, singleConcl);
             }
         }
 
-        // 8.6 LM列合并（当前行）
         if (COL_MERGE_L && COL_MERGE_M && !rowVals.isEmpty())
-            mergeSingleRowColumns(ws, currRow, COL_MERGE_L, COL_MERGE_M, QString::number(rowAvg, 'f', 1));
+            mergeSingleRowColumns(&doc, sheetName, currRow, COL_MERGE_L, COL_MERGE_M, QString::number(rowAvg, 'f', 1));
 
-        // 8.7 递增行号/序号/编号
         currRow++;
         serialNum++;
         codeNum++;
@@ -1343,11 +1287,9 @@ void MainWindow::saveToFile()
         }
         groupAvg = cnt > 0 ? groupAvg / cnt : 0;
 
-        // 第二步：无条件显示分组平均值（只要有数据就显示）
         if (COL_GROUP_AVG && cnt > 0)
-            mergeMultiRowSingleCol(ws, groupS, groupE, COL_GROUP_AVG, QString::number(groupAvg, 'f', 1));
+            mergeMultiRowSingleCol(&doc, sheetName, groupS, groupE, COL_GROUP_AVG, QString::number(groupAvg, 'f', 1));
 
-        // 仅双条件满足时输出分组结论
         bool isGroupFull = ((i + GROUP_SIZE - 1) < filledRows.size());
         bool isAllRowEnough = true;
         for (int row = groupS; row <= groupE; row++)
@@ -1363,7 +1305,7 @@ void MainWindow::saveToFile()
             QString groupConcl = getGroupConclusion(rowAvgMap, groupS, groupE);
             if (!groupConcl.isEmpty())
             {
-                mergeMultiRowSingleCol(ws, groupS, groupE, COL_GROUP_CONCL, groupConcl);
+                mergeMultiRowSingleCol(&doc, sheetName, groupS, groupE, COL_GROUP_CONCL, groupConcl);
             }
         }
     }
@@ -1371,153 +1313,140 @@ void MainWindow::saveToFile()
     // 10. 检测行（覆盖原有检测行，不跳过）
     if (currRow < 1)
         currRow = 1;
-    // 先清空检测行内容+取消合并
-    clearRowContent(ws, currRow);
-    unmergeRowAllColumns(ws, currRow);
+    clearRowContent(&doc, sheetName, currRow);
+    unmergeRowAllColumns(&doc, sheetName, currRow);
 
     QString detectText = ui->lineEdit->text().trimmed();
     QDate selectedDate = ui->dateEdit->date();
     QString dateStr = selectedDate.toString("yyyy年MM月dd日");
     QString detectRowText = QString("检测：%1  日期：%2").arg(detectText).arg(dateStr);
 
-    // 检测行合并（A-S）
-    mergeSingleRowColumns(ws, currRow, DETECT_COL_START, DETECT_COL_END, detectRowText);
+    mergeSingleRowColumns(&doc, sheetName, currRow, DETECT_COL_START, DETECT_COL_END, detectRowText);
 
     QString ManText = ui->lineEdit_4->text().trimmed();
     switch (selIdx)
     {
     case 1:
     {
-        setvalue(ws, 2, 8, ManText);
-        setvalue(ws, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 8, ManText);
+        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 2:
     {
-        setvalue(ws, 2, 10, ManText);
-        setvalue(ws, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 10, ManText);
+        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 3:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
         break;
     }
     case 4:
     {
-        setvalue(ws, 2, 8, ManText);
-        setvalue(ws, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 8, ManText);
+        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 5:
     {
-        setvalue(ws, 2, 10, ManText);
-        setvalue(ws, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 10, ManText);
+        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 6:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
         break;
     }
     case 7:
     {
-        setvalue(ws, 2, 8, ManText);
-        setvalue(ws, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 8, ManText);
+        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 8:
     {
-        setvalue(ws, 2, 10, ManText);
-        setvalue(ws, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 10, ManText);
+        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 9:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
         break;
     }
     case 10:
     {
-        setvalue(ws, 2, 8, ManText);
-        setvalue(ws, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 8, ManText);
+        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 11:
     {
-        setvalue(ws, 2, 10, ManText);
-        setvalue(ws, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(ws, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 10, ManText);
+        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
         break;
     }
     case 12:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
     }
     case 13:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
         break;
     }
     case 14:
     {
-        setvalue(ws, 2, 16, ManText);
-        setvalue(ws, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(ws, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(ws, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 2, 16, ManText);
+        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
+        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
+        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
         break;
     }
     }
 
-    // 11. 保存释放
-    try
+    if (doc.save())
     {
-        workbook->dynamicCall("Save()");
-        workbook->dynamicCall("Close(bool)", true);
-        excel->dynamicCall("Quit()");
+        QMessageBox::information(this, "成功", QString("保存完成！"));
     }
-    catch (...)
+    else
     {
-        qDebug() << "保存关闭Excel异常";
+        QMessageBox::critical(this, "错误", "保存Excel文件失败");
     }
 
-    // 释放资源
-    if (ws)
-        delete ws;
-    if (workbook)
-        delete workbook;
-    if (excel)
-        delete excel;
-
-    QMessageBox::information(this, "成功", QString("保存完成！"));
+#endif
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
@@ -1546,25 +1475,6 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 
     // 保留父类原有键盘事件行为（比如Tab切换焦点）
     QMainWindow::keyPressEvent(event);
-}
-
-void MainWindow::setFontColor(QAxObject *range, int color)
-{
-    if (!range)
-        return;
-    try
-    {
-        QAxObject *font = range->querySubObject("Font");
-        if (font)
-        {
-            font->setProperty("ColorIndex", color); // 设置字体颜色
-            delete font;
-        }
-    }
-    catch (...)
-    {
-        qDebug() << "设置字体颜色异常";
-    }
 }
 
 void BluetoothProtocolParser::onDataReceived(const QByteArray &newData) {

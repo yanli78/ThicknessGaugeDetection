@@ -13,7 +13,6 @@
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QApplication>
-#include <QAxObject>
 #include <QDebug>
 #include <QTableWidget>
 #include <QDesktopServices>
@@ -24,6 +23,13 @@
 #include "about.h"
 #include "setting.h"
 #include <QPainter>
+#include <QColor>
+
+#ifdef HAS_QXLSX
+#include "QXlsx/QXlsx/header/xlsxdocument.h"
+#include "QXlsx/QXlsx/header/xlsxformat.h"
+#include "QXlsx/QXlsx/header/xlsxcellrange.h"
+#endif
 
 const int NumMax = 5000;
 
@@ -105,17 +111,17 @@ private slots:
     void on_pushButton_4_clicked();
 
     void splitCode(const QString &code, QString &prefix, int &num);
-    int findLastDataRow(QAxObject *ws, int col);
-    bool setCellValue(QAxObject *ws, int row, int col, const QVariant &val);
-    bool mergeMultiRowSingleCol(QAxObject *ws, int sRow, int eRow, int col, const QVariant &val);
-    void clearRowContent(QAxObject *ws, int targetRow);
-    void clearStartRowData(QAxObject *ws);
+#ifdef HAS_QXLSX
+    int findLastDataRow(QXlsx::Document *doc, const QString &sheetName, int col);
+    bool setCellValue(QXlsx::Document *doc, const QString &sheetName, int row, int col, const QVariant &val);
+    bool mergeMultiRowSingleCol(QXlsx::Document *doc, const QString &sheetName, int sRow, int eRow, int col, const QVariant &val);
+    void clearRowContent(QXlsx::Document *doc, const QString &sheetName, int targetRow);
+    void clearStartRowData(QXlsx::Document *doc, const QString &sheetName);
+    void setFontColor(QXlsx::Format &format, const QColor &color);
+    void setvalue(QXlsx::Document *doc, const QString &sheetName, int row, int col, const QVariant &val);
+#endif
     QString getSingleConclusion(double avg, double min);
     QString getGroupConclusion(QMap<int, double> &avgMap, int sRow, int eRow);
-
-    void setFontColor(QAxObject *range, int color);
-
-    void setvalue(QAxObject *ws, int row, int col, const QVariant &val);
     QString findValidBgImage();
 
     void on_comboBox_sampleName_currentIndexChanged(int index);
