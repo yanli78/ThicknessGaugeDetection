@@ -24,12 +24,35 @@
 #include "setting.h"
 #include <QPainter>
 #include <QColor>
+#include <QVector>
+#include <QComboBox>
 
 #ifdef HAS_QXLSX
-#include "QXlsx/QXlsx/header/xlsxdocument.h"
-#include "QXlsx/QXlsx/header/xlsxformat.h"
-#include "QXlsx/QXlsx/header/xlsxcellrange.h"
+#include "xlsxdocument.h"
+#include "xlsxformat.h"
+#include "xlsxcellrange.h"
 #endif
+
+struct SampleConfig {
+    QString sheetName;
+    int colSerial;
+    int colCode;
+    int colSpec;
+    int colDataStart;
+    int startRow;
+    int dataPerRow;
+    int colRowAvg;
+    int colRowMin;
+    int colMergeL;
+    int colMergeM;
+    int colGroupAvg;
+    int colGroupConcl;
+    int colSingleConcl;
+    int detectColStart;
+    int detectColEnd;
+    QString customText;
+    QString imagePath;
+};
 
 const int NumMax = 5000;
 
@@ -119,6 +142,7 @@ private slots:
     void clearStartRowData(QXlsx::Document *doc, const QString &sheetName);
     void setFontColor(QXlsx::Format &format, const QColor &color);
     void setvalue(QXlsx::Document *doc, const QString &sheetName, int row, int col, const QVariant &val);
+    void fillSampleTemplate(QXlsx::Document *doc, int selIdx, const QString &manText);
 #endif
     QString getSingleConclusion(double avg, double min);
     QString getGroupConclusion(QMap<int, double> &avgMap, int sRow, int eRow);
@@ -128,6 +152,10 @@ private slots:
 
 private:
     Ui::MainWindow *ui;
+    void populateSerialPortComboBox(QComboBox *comboBox, const QStringList &keywords, int &autoSelectIndex);
+    void configureSerialPort(QSerialPort *port);
+    QVector<SampleConfig> getSampleConfigs();
+    void applySampleConfig(const SampleConfig &config);
     double tmpresult = 0.0;
     QList<double> measureValues;
     QSerialPort *serial;
@@ -137,6 +165,46 @@ private:
     int btn = 0;                      // 蓝牙按钮标志位
     QPixmap m_bgPixmap;
     BluetoothProtocolParser bluetoothprotocolparser;
+
+
+
+    int key_flag = 0;
+
+    int COL_SERIAL = 0;       // A列：序号
+    int COL_CODE = 0;         // B列：编号
+    int COL_SPEC = 0;         // C列：规格
+    int COL_DATA_START = 4;   // D列：数据起始列
+    int COL_ROW_AVG = 0;      // I列：单行平均值
+    int COL_ROW_MIN = 0;      // K列：单行最小值
+    int COL_MERGE_L = 0;      // L列：单行合并起始列
+    int COL_MERGE_M = 0;      // M列：单行合并结束列
+    int COL_SINGLE_CONCL = 0; // N列：单行结论
+    int COL_GROUP_AVG = 0;    // J列：分组平均值
+    int COL_GROUP_CONCL = 0;  // O列：分组结论
+    int DETECT_COL_START = 1; // 检测行合并起始列（A）
+    int DETECT_COL_END = 12;  // 检测行合并结束列（S）
+
+    // 行配置
+    int START_ROW = 9;               // 数据起始行（必须≥1）
+    int DATA_PER_ROW = 5;            // 每行5个数据
+    int GROUP_SIZE = 3;              // 每3行一组
+    int MAX_SEARCH_ROW = 500;        // 续填最大查找行
+    double avgPASS_THRESHOLD = 90.0; // 平均合格阈值
+    double minPASS_THRESHOLD = 90.0; // 最小合格阈值
+
+    // 路径配置
+    QString TEMPLATE_NAME = "1.xlsx";
+    QString SAVE_NAME = "测量数据.xlsx";
+    QString sheetName;
+
+    const int FONT_COLOR_RED = 255; // 红色字体（不合格）
+    const int FONT_COLOR_BLACK = 0; // 黑色字体（默认/合格）
+    const int ALIGN_GENERAL = -4107;
+    const int ALIGN_CENTER = -4108;
+
+    // 在MainWindow类中定义成员变量（缓存不完整数据）
+    QByteArray m_dataCache;
+    QByteArray m_buffer;
 };
 
 

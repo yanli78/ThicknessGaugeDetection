@@ -3,39 +3,7 @@
 #include <QColor>
 #include "setting.h"
 
-int key_flag = 0;
 
-int COL_SERIAL = 0;       // A列：序号
-int COL_CODE = 0;         // B列：编号
-int COL_SPEC = 0;         // C列：规格
-int COL_DATA_START = 4;   // D列：数据起始列
-int COL_ROW_AVG = 0;      // I列：单行平均值
-int COL_ROW_MIN = 0;      // K列：单行最小值
-int COL_MERGE_L = 0;      // L列：单行合并起始列
-int COL_MERGE_M = 0;      // M列：单行合并结束列
-int COL_SINGLE_CONCL = 0; // N列：单行结论
-int COL_GROUP_AVG = 0;    // J列：分组平均值
-int COL_GROUP_CONCL = 0;  // O列：分组结论
-int DETECT_COL_START = 1; // 检测行合并起始列（A）
-int DETECT_COL_END = 12;  // 检测行合并结束列（S）
-
-// 行配置
-int START_ROW = 9;               // 数据起始行（必须≥1）
-int DATA_PER_ROW = 5;            // 每行5个数据
-int GROUP_SIZE = 3;              // 每3行一组
-int MAX_SEARCH_ROW = 500;        // 续填最大查找行
-double avgPASS_THRESHOLD = 90.0; // 平均合格阈值
-double minPASS_THRESHOLD = 90.0; // 最小合格阈值
-
-// 路径配置
-QString TEMPLATE_NAME = "1.xlsx";
-QString SAVE_NAME = "测量数据.xlsx";
-QString sheetName;
-
-const int FONT_COLOR_RED = 255; // 红色字体（不合格）
-const int FONT_COLOR_BLACK = 0; // 黑色字体（默认/合格）
-const int ALIGN_GENERAL = -4107;
-const int ALIGN_CENTER = -4108;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), ui(new Ui::MainWindow)
@@ -77,19 +45,19 @@ MainWindow::MainWindow(QWidget *parent)
     this->update();
 
     // serial->setPortName("COM5");
-    serial->setBaudRate(QSerialPort::Baud115200);       // 设置波特率
-    serial->setDataBits(QSerialPort::Data8);            // 设置数据位
-    serial->setParity(QSerialPort::NoParity);           // 设置校验位
-    serial->setStopBits(QSerialPort::OneStop);          // 设置停止位
-    serial->setFlowControl(QSerialPort::NoFlowControl); // 设置流控制
-
-    btserial->setBaudRate(QSerialPort::Baud115200);       // 设置波特率
-    btserial->setDataBits(QSerialPort::Data8);            // 设置数据位
-    btserial->setParity(QSerialPort::NoParity);           // 设置校验位
-    btserial->setStopBits(QSerialPort::OneStop);          // 设置停止位
-    btserial->setFlowControl(QSerialPort::NoFlowControl); // 设置流控制
+    configureSerialPort(serial);
+    configureSerialPort(btserial);
 
     this->setFocusPolicy(Qt::StrongFocus);
+}
+
+void MainWindow::configureSerialPort(QSerialPort *port)
+{
+    port->setBaudRate(QSerialPort::Baud115200);
+    port->setDataBits(QSerialPort::Data8);
+    port->setParity(QSerialPort::NoParity);
+    port->setStopBits(QSerialPort::OneStop);
+    port->setFlowControl(QSerialPort::NoFlowControl);
 }
 
 MainWindow::~MainWindow()
@@ -163,60 +131,45 @@ QString MainWindow::findValidBgImage()
     return "";
 }
 
+void MainWindow::populateSerialPortComboBox(QComboBox *comboBox, const QStringList &keywords, int &autoSelectIndex)
+{
+    comboBox->clear();
+    autoSelectIndex = -1;
+
+    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
+    {
+        QSerialPort _com;
+        _com.setPort(info);
+        if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
+        {
+            QString portName = info.portName();
+            comboBox->addItem(portName);
+
+            for (const QString &keyword : keywords)
+            {
+                if (info.description().contains(keyword, Qt::CaseInsensitive))
+                {
+                    autoSelectIndex = comboBox->count() - 1;
+                    break;
+                }
+            }
+            _com.close();
+        }
+    }
+
+    if (autoSelectIndex != -1)
+    {
+        comboBox->setCurrentIndex(autoSelectIndex);
+    }
+}
+
 void MainWindow::on_pushButton_clicked()
 {
-    // ====================== 处理 comboBox (CH340) ======================
-    ui->comboBox->clear();
-    int ch340Index = -1; // 记录CH340端口的索引
-    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
-    {
-        QSerialPort _com;
-        _com.setPort(info);
-        if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
-        {
-            QString portName = info.portName();
-            ui->comboBox->addItem(portName);
+    int ch340Index = -1;
+    populateSerialPortComboBox(ui->comboBox, {"CH340"}, ch340Index);
 
-            // 检测是否为CH340 (描述中包含"CH340"字符串，不区分大小写)
-            if (info.description().contains("CH340", Qt::CaseInsensitive))
-            {
-                ch340Index = ui->comboBox->count() - 1; // 记录当前索引
-            }
-            _com.close();
-        }
-    }
-    // 自动选中CH340
-    if (ch340Index != -1)
-    {
-        ui->comboBox->setCurrentIndex(ch340Index);
-    }
-
-    // ====================== 处理 comboBox_2 (蓝牙串口) ======================
-    ui->comboBox_2->clear();
-    int bluetoothIndex = -1; // 记录蓝牙串口的索引
-    foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts())
-    {
-        QSerialPort _com;
-        _com.setPort(info);
-        if (_com.portName() == serial->portName() or _com.open(QIODevice::ReadWrite))
-        {
-            QString portName = info.portName();
-            ui->comboBox_2->addItem(portName);
-
-            // 检测是否为蓝牙串口 (描述中包含"Bluetooth"或"蓝牙")
-            if (info.description().contains("Bluetooth", Qt::CaseInsensitive) ||
-                info.description().contains("蓝牙", Qt::CaseInsensitive))
-            {
-                bluetoothIndex = ui->comboBox_2->count() - 1; // 记录当前索引
-            }
-            _com.close();
-        }
-    }
-    // 自动选中蓝牙串口
-    if (bluetoothIndex != -1)
-    {
-        ui->comboBox_2->setCurrentIndex(bluetoothIndex);
-    }
+    int bluetoothIndex = -1;
+    populateSerialPortComboBox(ui->comboBox_2, {"Bluetooth", "蓝牙"}, bluetoothIndex);
 }
 
 void MainWindow::on_pushButton_2_clicked()
@@ -250,8 +203,7 @@ void MainWindow::on_pushButton_3_clicked()
     btn = 1 ;
 }
 
-// 在MainWindow类中定义成员变量（缓存不完整数据）
-QByteArray m_dataCache;
+
 
 void MainWindow::dataReceive()
 {
@@ -282,7 +234,7 @@ void MainWindow::dataReceive()
 
 }
 
-QByteArray m_buffer;
+
 void MainWindow::btReceive()
 {
     // 1. 读取所有当前可用的数据
@@ -494,277 +446,115 @@ void MainWindow::deleteSelectedRow()
     updateStatistics();
 }
 
+QVector<SampleConfig> MainWindow::getSampleConfigs()
+{
+    return {
+        SampleConfig(),
+        {"Sheet1", 1, 0, 2, 3, 9, 5, 0, 0, 8, 9, 10, 11, 0, 1, 11,
+         "35KV及以上螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组",
+         "./source/1.png"},
+        {"Sheet2", 1, 2, 3, 0, 5, 5, 9, 0, 0, 0, 10, 12, 0, 1, 12,
+         "35-500KV金具镀锌层测量位置：\n \n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚",
+         "./source/2.png"},
+        {"Sheet3", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "10kV塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"},
+        {"Sheet4", 1, 2, 0, 3, 9, 5, 0, 0, 8, 9, 10, 11, 0, 1, 11,
+         "10KV及以下螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组",
+         "./source/1.png"},
+        {"Sheet5", 1, 2, 3, 4, 5, 5, 9, 0, 0, 0, 10, 12, 0, 1, 12,
+         "10KV及以下金具镀锌层测量位置：\n\n 随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚",
+         "./source/2.png"},
+        {"Sheet6", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "35kV及以上塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"},
+        {"Sheet7", 1, 0, 2, 3, 9, 5, 0, 0, 8, 9, 10, 11, 0, 1, 11,
+         "35KV及以上螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组 ",
+         "./source/1.png"},
+        {"Sheet8", 1, 2, 3, 0, 5, 5, 9, 0, 0, 0, 10, 12, 0, 1, 12,
+         "35-500KV金具镀锌层测量位置：\n\n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚",
+         "./source/2.png"},
+        {"Sheet9", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "35kV及以上塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"},
+        {"Sheet10", 1, 0, 2, 3, 9, 5, 0, 0, 8, 9, 10, 11, 0, 1, 11,
+         "10KV及以下螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组",
+         "./source/1.png"},
+        {"Sheet11", 1, 2, 3, 0, 5, 5, 9, 0, 0, 0, 10, 12, 0, 1, 12,
+         "10KV及以下金具镀锌层测量位置：\n\n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚",
+         "./source/2.png"},
+        {"Sheet12", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "35kV及以上塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"},
+        {"Sheet13", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "35kV及以上塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"},
+        {"Sheet14", 1, 2, 3, 4, 6, 12, 16, 17, 0, 0, 0, 0, 19, 1, 19,
+         "10kV塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布",
+         "./source/3.png"}
+    };
+}
+
+void MainWindow::applySampleConfig(const SampleConfig &config)
+{
+    sheetName = config.sheetName;
+    COL_SERIAL = config.colSerial;
+    COL_CODE = config.colCode;
+    COL_SPEC = config.colSpec;
+    COL_DATA_START = config.colDataStart;
+    START_ROW = config.startRow;
+    DATA_PER_ROW = config.dataPerRow;
+    COL_ROW_AVG = config.colRowAvg;
+    COL_ROW_MIN = config.colRowMin;
+    COL_MERGE_L = config.colMergeL;
+    COL_MERGE_M = config.colMergeM;
+    COL_GROUP_AVG = config.colGroupAvg;
+    COL_GROUP_CONCL = config.colGroupConcl;
+    COL_SINGLE_CONCL = config.colSingleConcl;
+    DETECT_COL_START = config.detectColStart;
+    DETECT_COL_END = config.detectColEnd;
+    
+    QPixmap pixmap;
+    pixmap.load(config.imagePath);
+    
+    ui->textBrowser_2->setText(config.customText);
+    ui->label_14->setPixmap(pixmap.scaled(ui->label_14->size(),
+                                          Qt::KeepAspectRatio,
+                                          Qt::SmoothTransformation));
+}
+
 void MainWindow::on_comboBox_sampleName_currentIndexChanged(int index)
 {
-    QString customText;
-    QPixmap pixmap;
-    pixmap = QPixmap();
-    COL_SERIAL = 0;       // A列：序号
-    COL_CODE = 0;         // B列：编号
-    COL_SPEC = 0;         // C列：规格
-    COL_DATA_START = 4;   // D列：数据起始列
-    COL_ROW_AVG = 0;      // I列：单行平均值
-    COL_ROW_MIN = 0;      // K列：单行最小值
-    COL_MERGE_L = 0;      // L列：单行合并起始列
-    COL_MERGE_M = 0;      // M列：单行合并结束列
-    COL_SINGLE_CONCL = 0; // N列：单行结论
-    COL_GROUP_AVG = 0;    // J列：分组平均值
-    COL_GROUP_CONCL = 0;  // O列：分组结论
-    DETECT_COL_START = 1; // 检测行合并起始列（A）
-    DETECT_COL_END = 12;  // 检测行合并结束列（S）
-
-    // 行配置
-    START_ROW = 9;    // 数据起始行（必须≥1）
-    DATA_PER_ROW = 5; // 每行5个数据
-    GROUP_SIZE = 3;   // 每3行一组
-    switch (index)
+    COL_SERIAL = 0;
+    COL_CODE = 0;
+    COL_SPEC = 0;
+    COL_DATA_START = 4;
+    COL_ROW_AVG = 0;
+    COL_ROW_MIN = 0;
+    COL_MERGE_L = 0;
+    COL_MERGE_M = 0;
+    COL_SINGLE_CONCL = 0;
+    COL_GROUP_AVG = 0;
+    COL_GROUP_CONCL = 0;
+    DETECT_COL_START = 1;
+    DETECT_COL_END = 12;
+    START_ROW = 9;
+    DATA_PER_ROW = 5;
+    GROUP_SIZE = 3;
+    
+    QVector<SampleConfig> configs = getSampleConfigs();
+    
+    if (index >= 1 && index < configs.size())
     {
-    case 1:
+        applySampleConfig(configs[index]);
+    }
+    else
     {
-
-        sheetName = "Sheet1";
-        COL_SERIAL = 1;
-        COL_CODE = 0;
-        COL_SPEC = 2;
-        COL_DATA_START = 3;
-        START_ROW = 9;
-        COL_ROW_AVG = 0;
-        COL_ROW_MIN = 0;
-        COL_MERGE_L = 8;
-        COL_MERGE_M = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 11;
-        DETECT_COL_START = 1;
-        DETECT_COL_END = 11;
-        customText = QString("35KV及以上螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组");
-        pixmap.load("./source/1.png");
-        break;
+        ui->textBrowser_2->setText("没有提示！");
+        ui->label_14->clear();
     }
-    case 2:
-    {
-
-        sheetName = "Sheet2";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        START_ROW = 5;
-        COL_ROW_AVG = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 12;
-        DETECT_COL_END = 12;
-        customText = QString("35-500KV金具镀锌层测量位置：\n \n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚");
-        pixmap.load("./source/2.png");
-        break;
-    }
-    case 3:
-    {
-
-        sheetName = "Sheet3";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("10kV塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    case 4:
-    {
-        sheetName = "Sheet4";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_DATA_START = 3;
-        START_ROW = 9;
-        COL_MERGE_L = 8;
-        COL_MERGE_M = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 11;
-        DETECT_COL_END = 11;
-        customText = QString("10KV及以下螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组");
-        pixmap.load("./source/1.png");
-        break;
-    }
-    case 5:
-    {
-        sheetName = "Sheet5";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 5;
-        DATA_PER_ROW = 5;
-        COL_ROW_AVG = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 12;
-        DETECT_COL_END = 12;
-        customText = QString("10KV及以下金具镀锌层测量位置：\n\n 随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚");
-        pixmap.load("./source/2.png");
-        break;
-    }
-    case 6:
-    {
-        sheetName = "Sheet6";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("35kV及以上塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    case 7:
-    {
-        sheetName = "Sheet7";
-        COL_SERIAL = 1;
-        COL_SPEC = 2;
-        COL_DATA_START = 3;
-        COL_MERGE_L = 8;
-        COL_MERGE_M = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 11;
-        DETECT_COL_END = 11;
-        customText = QString("35KV及以上螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组 ");
-        pixmap.load("./source/1.png");
-        break;
-    }
-    case 8:
-    {
-        sheetName = "Sheet8";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        START_ROW = 5;
-        COL_ROW_AVG = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 12;
-        DETECT_COL_END = 12;
-        customText = QString("35-500KV金具镀锌层测量位置：\n\n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚");
-        pixmap.load("./source/2.png");
-        break;
-    }
-    case 9:
-    {
-        sheetName = "Sheet9";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("35kV及以上塔材钢镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    case 10:
-    {
-        sheetName = "Sheet10";
-        COL_SERIAL = 1;
-        COL_SPEC = 2;
-        COL_DATA_START = 3;
-        START_ROW = 9;
-        COL_MERGE_L = 8;
-        COL_MERGE_M = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 11;
-        DETECT_COL_END = 11;
-        customText = QString("10KV及以下螺栓镀锌层测量位置：\n\n螺栓螺母随机取样\n\n在下图位置1所示的测量面上进行。\n\n至少取5个测量点测厚，样品数量3个为1组");
-        pixmap.load("./source/1.png");
-        break;
-    }
-    case 11:
-    {
-        sheetName = "Sheet11";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        START_ROW = 5;
-        COL_ROW_AVG = 9;
-        COL_GROUP_AVG = 10;
-        COL_GROUP_CONCL = 12;
-        DETECT_COL_END = 12;
-        customText = QString("10KV及以下金具镀锌层测量位置：\n\n随机均布于整个试品的锌层表面，在制件尺寸允许的情况下，测量不应在离边缘小于10mm的区域或火焰切割面进行，至少取 5 个测量点测厚");
-        pixmap.load("./source/2.png");
-        break;
-    }
-    case 12:
-    {
-        sheetName = "Sheet12";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("35kV及以上塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    case 13:
-    {
-        sheetName = "Sheet13";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("35kV及以上塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    case 14:
-    {
-
-        sheetName = "Sheet14";
-        COL_SERIAL = 1;
-        COL_CODE = 2;
-        COL_SPEC = 3;
-        COL_DATA_START = 4;
-        START_ROW = 6;
-        DATA_PER_ROW = 12;
-        COL_ROW_AVG = 16;
-        COL_ROW_MIN = 17;
-        DETECT_COL_END = 19;
-        COL_SINGLE_CONCL = 19;
-        customText = QString("10kV塔材铁镀锌层测量位置：\n\n钢管构件在两端（离边缘距离不小于 100 mm）和中间任意位置各环向均匀测量4点;\n\n角钢试样每面3 处各1点，4面共12点；\n\n钢板试样每面6处各1点，2面共12点；\n\n水泥杆法兰盘锌层每面3 处各1点，4面共12点;\n\n测试时测点应均匀分布");
-        pixmap.load("./source/3.png");
-        break;
-    }
-    default:
-    {
-        customText = QString("没有提示！");
-        break;
-    }
-    }
-    ui->textBrowser_2->setText(customText);
-    ui->label_14->setPixmap(pixmap.scaled(ui->label_14->size(),       // 适配Label尺寸
-                                          Qt::KeepAspectRatio,        // 保持宽高比
-                                          Qt::SmoothTransformation)); // 平滑缩放
 }
+
 
 void MainWindow::on_pushButton_4_clicked()
 {
@@ -820,32 +610,18 @@ void unmergeRowAllColumns(QXlsx::Document *doc, const QString &sheetName, int ta
         return;
     try
     {
-
-        // 1. 先选中目标工作表
         if (!doc->selectSheet(sheetName)) {
             qWarning() << "无法选中工作表:" << sheetName;
             return;
         }
 
-        // 2. 获取当前工作表对象（注意：需包含 QXlsx/Worksheet.h 头文件）
         QXlsx::Worksheet* worksheet = doc->currentWorksheet();
         if (!worksheet) {
             qWarning() << "无法获取工作表对象";
             return;
         }
 
-        // 3. 从 Worksheet 对象获取合并单元格列表
         QList<QXlsx::CellRange> merges = worksheet->mergedCells();
-
-        // 4. 遍历并解除合并
-        for (const QXlsx::CellRange &range : merges)
-        {
-            if (range.firstRow() <= targetRow && range.lastRow() >= targetRow)
-            {
-                // unmergeCells 可以直接用 Document 调用，也可以用 Worksheet 调用
-                doc->unmergeCells(range);
-            }
-        }
 
         for (const QXlsx::CellRange &range : merges)
         {
@@ -1044,14 +820,57 @@ void MainWindow::setvalue(QXlsx::Document *doc, const QString &sheetName, int ro
 {
     if (!doc)
         return;
-    // 1. 先选中目标工作表
     if (!doc->selectSheet(sheetName)) {
         qWarning() << "无法选中工作表:" << sheetName;
-        return; // 或根据函数逻辑返回错误值
+        return;
+    }
+    doc->write(row, col, val);
+}
+
+void MainWindow::fillSampleTemplate(QXlsx::Document *doc, int selIdx, const QString &manText)
+{
+    if (!doc)
+        return;
+
+    double val0 = revalue(selIdx, 0);
+    double val1 = revalue(selIdx, 1);
+
+    if (!doc->selectSheet(sheetName)) {
+        qWarning() << "无法选中工作表:" << sheetName;
+        return;
     }
 
-    // 2. 写入数据（移除最后的 sheetName 参数）
-    doc->write(row, col, val);
+    switch (selIdx)
+    {
+    case 1:
+    case 4:
+    case 7:
+    case 10:
+        setvalue(doc, sheetName, 2, 8, manText);
+        setvalue(doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(val0).arg(val1));
+        setvalue(doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(val0).arg(val1));
+        break;
+    case 2:
+    case 5:
+    case 8:
+    case 11:
+        setvalue(doc, sheetName, 2, 10, manText);
+        setvalue(doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(val0).arg(val1));
+        setvalue(doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(val0).arg(val1));
+        break;
+    case 3:
+    case 6:
+    case 9:
+    case 12:
+    case 13:
+    case 14:
+        setvalue(doc, sheetName, 2, 16, manText);
+        setvalue(doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(val0));
+        setvalue(doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(val0));
+        setvalue(doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(val1));
+        setvalue(doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(val1));
+        break;
+    }
 }
 
 #endif
@@ -1324,118 +1143,7 @@ void MainWindow::saveToFile()
     mergeSingleRowColumns(&doc, sheetName, currRow, DETECT_COL_START, DETECT_COL_END, detectRowText);
 
     QString ManText = ui->lineEdit_4->text().trimmed();
-    switch (selIdx)
-    {
-    case 1:
-    {
-        setvalue(&doc, sheetName, 2, 8, ManText);
-        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 2:
-    {
-        setvalue(&doc, sheetName, 2, 10, ManText);
-        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 3:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 4:
-    {
-        setvalue(&doc, sheetName, 2, 8, ManText);
-        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 5:
-    {
-        setvalue(&doc, sheetName, 2, 10, ManText);
-        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 6:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 7:
-    {
-        setvalue(&doc, sheetName, 2, 8, ManText);
-        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 8:
-    {
-        setvalue(&doc, sheetName, 2, 10, ManText);
-        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 9:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 10:
-    {
-        setvalue(&doc, sheetName, 2, 8, ManText);
-        setvalue(&doc, sheetName, 3, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 9, QString("单体锌厚：≥%1μm平均锌厚：≥%2μm").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 11:
-    {
-        setvalue(&doc, sheetName, 2, 10, ManText);
-        setvalue(&doc, sheetName, 4, 9, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 4, 10, QString("δ≥6mm：≥%1（10kV及以下）；δ≥6mm：≥%2（35kV-500kV）").arg(revalue(selIdx, 0)).arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 12:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm:≥%1").arg(revalue(selIdx, 1)));
-    }
-    case 13:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        break;
-    }
-    case 14:
-    {
-        setvalue(&doc, sheetName, 2, 16, ManText);
-        setvalue(&doc, sheetName, 4, 16, QString("δ＜5mm:≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 4, 17, QString("δ＜5mm :≥%1").arg(revalue(selIdx, 0)));
-        setvalue(&doc, sheetName, 5, 16, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        setvalue(&doc, sheetName, 5, 17, QString("δ≥5mm :≥%1").arg(revalue(selIdx, 1)));
-        break;
-    }
-    }
+    fillSampleTemplate(&doc, selIdx, ManText);
 
     if (doc.save())
     {
