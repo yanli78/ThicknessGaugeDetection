@@ -953,9 +953,9 @@ void MainWindow::saveToFile()
 
     // 5. 生成测试数据
     QStringList dataList = getTableThirdColumn(ui->tableWidget);
-    for (int i = 0; i < 23; i++){
-        dataList.append(QString::number(48.0 + i * 0.1, 'f', 1));
-    }
+    // for (int i = 0; i < 23; i++){
+    //     dataList.append(QString::number(48.0 + i * 0.1, 'f', 1));
+    // }
     if (dataList.isEmpty())
     {
         QMessageBox::warning(this, "提示", "无数据");
