@@ -953,7 +953,7 @@ void MainWindow::saveToFile()
 
     // 5. 生成测试数据
     QStringList dataList = getTableThirdColumn(ui->tableWidget);
-    // for (int i = 0; i < 23; i++){
+    // for (int i = 0; i < 25; i++){
     //     dataList.append(QString::number(48.0 + i * 0.1, 'f', 1));
     // }
     if (dataList.isEmpty())
@@ -1067,9 +1067,9 @@ void MainWindow::saveToFile()
 
         filledRows.append(currRow);
 
-        if (COL_ROW_AVG > 0 && rowVals.size() >= 1)
+        if (COL_ROW_AVG > 0 && isDataEnough && rowVals.size() >= 1)
             setCellValue(&doc, sheetName, currRow, COL_ROW_AVG, QString::number(rowAvg, 'f', 1));
-        if (COL_ROW_MIN > 0 && rowVals.size() >= 1)
+        if (COL_ROW_MIN > 0 && isDataEnough && rowVals.size() >= 1)
             setCellValue(&doc, sheetName, currRow, COL_ROW_MIN, QString::number(rowMin, 'f', 1));
 
         if (COL_SINGLE_CONCL > 0 && isDataEnough && rowVals.size() >= 1)
@@ -1106,11 +1106,12 @@ void MainWindow::saveToFile()
         }
         groupAvg = cnt > 0 ? groupAvg / cnt : 0;
 
-        if (COL_GROUP_AVG && cnt > 0)
-            mergeMultiRowSingleCol(&doc, sheetName, groupS, groupE, COL_GROUP_AVG, QString::number(groupAvg, 'f', 1));
 
         bool isGroupFull = ((i + GROUP_SIZE - 1) < filledRows.size());
         bool isAllRowEnough = true;
+        if (COL_GROUP_AVG && isGroupFull && isAllRowEnough && cnt > 0)
+            mergeMultiRowSingleCol(&doc, sheetName, groupS, groupE, COL_GROUP_AVG, QString::number(groupAvg, 'f', 1));
+
         for (int row = groupS; row <= groupE; row++)
         {
             if (!rowDataEnoughMap.contains(row) || !rowDataEnoughMap[row])

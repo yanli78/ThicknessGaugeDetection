@@ -25,7 +25,7 @@ set(QXLSX_LIB QXlsx::QXlsx)
 
 # ====================================================================================
 
-qt_add_executable(ThicknessGauge
+qt_add_executable(ThicknessGauge WIN32
     main.cpp
     mainwindow.cpp
     mainwindow.h

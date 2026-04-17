@@ -101,8 +101,21 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    if (key1_pending) {
+      // 检查是否达到消抖时间（20ms）
+      if (HAL_GetTick() - key1_exti_timestamp >= 20) {
+        // 再次读取GPIO确认按键状态（假设按下为低电平GPIO_PIN_RESET）
+        // 注意：请根据你的实际电路修改判断条件（低电平/高电平触发）
+        if (HAL_GPIO_ReadPin(KEY1_GPIO_PORT, KEY1_GPIO_PIN) == GPIO_PIN_RESET) {
+          key1_flag = 1; // 确认按下，置位标志
+        }
+        key1_pending = 0; // 消抖完成，清除等待状态
+      }
+    }
+
+    // 2. 原有按键业务逻辑
     if (key1_flag) {
-      key1_flag = 0; // 先清除标志位
+      key1_flag = 0;
       printf("BTN1\r\n");
     }
   }
