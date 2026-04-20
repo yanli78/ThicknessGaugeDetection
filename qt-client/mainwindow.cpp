@@ -369,6 +369,8 @@ void MainWindow::dowork()
         measureValues.append(static_cast<double>(tmpresult)); // 转double存入统计列表
 
         updateStatistics(); // 立即更新最大值/最小值/平均值
+
+        ui->lineEdit_result->setText(QString::number(tmpresult, 'f', 2));
         btn = 0;
     }
 
